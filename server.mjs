@@ -135,7 +135,7 @@ app.prepare().then(() => {
                 socket.emit("createRoomResponse", { success: true, room: roomName });
 
                 // Emit the updated list of available rooms (game rooms)
-                io.emit("availableRooms", await getRoomsFromDB("game"));  // Broadcast updated game rooms to all clients
+                io.emit("availableRooms", await getRoomsFromDB());  // Broadcast updated game rooms to all clients
 
             } catch (error) {
                 console.error('Error creating game room:', error);
@@ -179,7 +179,7 @@ app.prepare().then(() => {
                 socket.emit('createRoomResponse', { success: true, room: name, type });
 
                 // Emit updated list of available rooms (chat rooms)
-                io.emit('availableRooms', await getRoomsFromDB(type));  // Broadcast updated chat rooms to all clients
+                io.emit('availableRooms', await getRoomsFromDB());  // Broadcast updated chat rooms to all clients
 
             } catch (error) {
                 console.error('Error creating room:', error);
