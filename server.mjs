@@ -24,13 +24,17 @@ const getRoomsFromDB = async (type = null) => {
     try {
         let query = 'SELECT name FROM rooms';
         let params = [];
+        
         if (type) {
             query += ' WHERE type = $1';
             params.push(type);
         }
+        
+        console.log('Executing query:', query, params);
         const res = await client.query(query, params);
-        console.log('Fetch rooms from DB:', res.rows);
-        return res.rows.map(row => ({ name: row.name, type: row.type }));
+        console.log(`Fetched rooms:`, res.rows);
+
+        return res.rows.map(row => row.name);
     } catch (error) {
         console.error('Error fetching rooms from DB:', error);
         return [];
@@ -38,16 +42,21 @@ const getRoomsFromDB = async (type = null) => {
 };
 
 
+
 // Handle room creation (chat or game)
 const createRoomInDB = async (newRoom, type) => {
     try {
-        // Ensure room doesn't already exist
+        console.log(`Checking if room ${newRoom} exists...`);
         const checkRes = await client.query('SELECT * FROM rooms WHERE name = $1', [newRoom]);
-        if (checkRes.rows.length > 0) return null;  // Room already exists
-        console.log('select rooms:', checkRes.rows);
-        // Create new room in the database
-        await client.query('INSERT INTO rooms (name, type) VALUES ($1, $2) RETURNING *', [newRoom, type]);
-        console.log('Room data being sent:', roomData);
+        
+        if (checkRes.rows.length > 0) {
+            console.log(`Room ${newRoom} already exists.`);
+            return null;  // Room already exists
+        }
+
+        console.log(`Room ${newRoom} does not exist, creating room...`);
+        await client.query('INSERT INTO rooms (name, type) VALUES ($1, $2)', [newRoom, type]);
+        console.log(`Room ${newRoom} created successfully.`);
 
         return newRoom;
     } catch (error) {
