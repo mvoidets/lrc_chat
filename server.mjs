@@ -36,11 +36,15 @@ const getRoomsFromDB = async (type = null) => {
     }
 };
 
+
 // Handle room creation (chat or game)
 const createRoomInDB = async (newRoom, type) => {
     try {
+        // Ensure room doesn't already exist
         const checkRes = await client.query('SELECT * FROM rooms WHERE name = $1', [newRoom]);
         if (checkRes.rows.length > 0) return null;  // Room already exists
+
+        // Create new room in the database
         await client.query('INSERT INTO rooms (name, type) VALUES ($1, $2) RETURNING *', [newRoom, type]);
         return newRoom;
     } catch (error) {
@@ -49,15 +53,18 @@ const createRoomInDB = async (newRoom, type) => {
     }
 };
 
-// Save message to the database
-const saveMessageToDatabase = async (room, message, sender) => {
+
+
+// Save message to the database (with type)
+const saveMessageToDatabase = async (room, message, sender, type) => {
     try {
-        const res = await client.query('INSERT INTO messages (room_name, message, sender) VALUES ($1, $2, $3) RETURNING *', [room, message, sender]);
+        const res = await client.query('INSERT INTO messages (room_name, message, sender, type) VALUES ($1, $2, $3, $4) RETURNING *', [room, message, sender, type]);
         console.log('Message saved to DB:', res.rows[0]);
     } catch (error) {
         console.error('Error saving message to DB:', error);
     }
 };
+
 
 // Get message history
 export async function getMessagesFromDB(roomName) {
@@ -129,16 +136,16 @@ app.prepare().then(() => {
         });
 
         // Handle 'createRoom' event (creating a chat room)
-        socket.on('createRoom', async (newRoom) => {
+        socket.on('createRoom', async (newRoom, type) => {
             try {
-                const roomCreated = await createRoomInDB(newRoom, 'chat');
+                const roomCreated = await createRoomInDB(newRoom, type);
                 if (!roomCreated) {
                     socket.emit('createRoomResponse', { success: false, error: 'Room already exists' });
                     return;
                 }
 
                 socket.join(newRoom);
-                socket.emit('createRoomResponse', { success: true, room: newRoom });
+                socket.emit('createRoomResponse', { success: true, room: newRoom, type: type });
 
                 io.emit('availableRooms', await getRoomsFromDB('chat'));  // Broadcast updated chat rooms
             } catch (error) {
@@ -164,25 +171,68 @@ app.prepare().then(() => {
                 console.error('Error in join-room handler:', error);
             }
         });
+        
+//create gameroom
 
+        socket.on("createGameRoom", async (roomName, gameType) => {
+            try {
+                // Create game room
+                const roomCreated = await createRoomInDB(roomName, "game");
+                if (!roomCreated) {
+                    socket.emit("createRoomResponse", { success: false, error: "Room already exists!" });
+                    return;
+                }
+        
+                // Create associated chat room
+                const chatRoomName = `${roomName}-chat`; // e.g., "gameRoom1-chat"
+                await createRoomInDB(chatRoomName, "chat");
+        
+                socket.join(roomName);  // Join game room
+                socket.join(chatRoomName);  // Join corresponding chat room
+                socket.emit("createRoomResponse", { success: true, room: roomName });
+        
+                // Update available rooms
+                io.emit("availableRooms", await getRoomsFromDB("game"));  // For game rooms
+            } catch (error) {
+                console.error('Error creating game room:', error);
+                socket.emit("createRoomResponse", { success: false, error: "Error creating room" });
+            }
+        });
+        
         // Handle sending messages (chat messages)
         socket.on('message', async ({ room, message, sender }) => {
             try {
-                const roomType = await client.query('SELECT type FROM rooms WHERE name = $1', [room]);
-                if (roomType.rows[0].type !== 'chat') return;  // Ignore messages in game rooms
+                // Fetch room type from DB to ensure it's a chat room
+                const roomTypeRes = await client.query('SELECT type FROM rooms WHERE name = $1', [room]);
+                const roomType = roomTypeRes.rows[0].type;
 
-                await saveMessageToDatabase(room, message, sender);
-                io.to(room).emit('newMessage', { sender, message, room });
+                if (roomType !== 'chat') return;  // Ignore messages in non-chat rooms
+
+                await saveMessageToDatabase(room, message, sender, 'chat'); // Save as chat message
+                io.to(room).emit('newMessage', { sender, message });
             } catch (error) {
                 console.error('Error saving message to DB:', error);
             }
         });
 
         // Handle 'gameMessage' event (game-specific messages)
-        socket.on("gameMessage", (data) => {
-            const { room, message } = data;
-            socket.to(room).emit("newMessage", message);  // Send game-specific message
+        socket.on("gameMessage", async (data) => {
+            const { room, message, sender } = data;
+
+            try {
+                // Fetch room type to make sure it's a game room
+                const roomTypeRes = await client.query('SELECT type FROM rooms WHERE name = $1', [room]);
+                const roomType = roomTypeRes.rows[0].type;
+
+                if (roomType !== 'game') return;  // Ignore messages in non-game rooms
+
+                // Send game-specific message
+                socket.to(room).emit("gameMessage", { sender, message });
+            } catch (error) {
+                console.error('Error in game message handling:', error);
+            }
         });
+
 
         // Handle leave-room event
         socket.on('leave-room', (room, userName) => {
@@ -208,6 +258,6 @@ app.prepare().then(() => {
     httpServer.listen(port, '0.0.0.0', () => {
         console.log(`Server listening on http://${hostname}:${port}`);
     });
-}).catch ((err) => {
+}).catch((err) => {
     console.error('Error preparing app:', err);
 });
