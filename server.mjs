@@ -44,7 +44,7 @@ const createRoomInDB = async (newRoom, type) => {
         // Ensure room doesn't already exist
         const checkRes = await client.query('SELECT * FROM rooms WHERE name = $1', [newRoom]);
         if (checkRes.rows.length > 0) return null;  // Room already exists
-
+        console.log('select rooms:', checkRes.rows);
         // Create new room in the database
         await client.query('INSERT INTO rooms (name, type) VALUES ($1, $2) RETURNING *', [newRoom, type]);
         console.log('Room data being sent:', roomData);
@@ -152,7 +152,7 @@ app.prepare().then(() => {
         });
 
 
-        // Handle 'createRoom' event (creating a chat room)
+      
         // Handle 'createRoom' event (creating a chat room)
         socket.on('createRoom', async ({ name, type }) => {
             try {
@@ -170,7 +170,7 @@ app.prepare().then(() => {
                 socket.emit('createRoomResponse', { success: true, room: name, type });
 
                 // Emit updated list of available rooms (chat rooms)
-                io.emit('availableRooms', await getRoomsFromDB('chat'));  // Broadcast updated chat rooms to all clients
+                io.emit('availableRooms', await getRoomsFromDB(type));  // Broadcast updated chat rooms to all clients
 
             } catch (error) {
                 console.error('Error creating room:', error);
