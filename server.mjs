@@ -29,7 +29,8 @@ const getRoomsFromDB = async (type = null) => {
             params.push(type);
         }
         const res = await client.query(query, params);
-        return res.rows.map(row => row.name);
+        console.log('Fetch rooms from DB:', res.rows);
+        return res.rows.map(row => ({ name: row.name, type: row.type }));
     } catch (error) {
         console.error('Error fetching rooms from DB:', error);
         return [];
@@ -102,24 +103,37 @@ app.prepare().then(() => {
     io.on('connection', (socket) => {
         console.log(`A player connected: ${socket.id}`);
 
+
         // Handle 'createGameRoom' event (creating a game room)
         socket.on("createGameRoom", async (roomName, gameType) => {
             try {
+                // Create the game room in the DB
                 const roomCreated = await createRoomInDB(roomName, "game");
                 if (!roomCreated) {
                     socket.emit("createRoomResponse", { success: false, error: "Room already exists!" });
                     return;
                 }
 
-                socket.join(roomName);
+                // Create the associated chat room (name of chat room is the game room name + "-chat")
+                const chatRoomName = `${roomName}-chat`;  // e.g., "gameRoom1-chat"
+                await createRoomInDB(chatRoomName, "chat");
+
+                // Join both the game and chat rooms
+                socket.join(roomName);  // Join game room
+                socket.join(chatRoomName);  // Join chat room
+
+                // Emit the success response with room name
                 socket.emit("createRoomResponse", { success: true, room: roomName });
 
-                io.emit("availableRooms", await getRoomsFromDB("game"));  // Broadcast updated game rooms
+                // Emit the updated list of available rooms (game rooms)
+                io.emit("availableRooms", await getRoomsFromDB("game"));  // Broadcast updated game rooms to all clients
+
             } catch (error) {
                 console.error('Error creating game room:', error);
                 socket.emit("createRoomResponse", { success: false, error: "Error creating room" });
             }
         });
+
 
         // Handle 'joinGameRoom' event (joining a game room)
         socket.on("joinGameRoom", async (roomName, userName) => {
@@ -137,28 +151,32 @@ app.prepare().then(() => {
             }
         });
 
+
         // Handle 'createRoom' event (creating a chat room)
         // Handle 'createRoom' event (creating a chat room)
-socket.on('createRoom', async ({ name, type }) => {  // Destructure the object to get both name and type
-    try {
-        // Create room in DB (make sure your createRoomInDB function is expecting the same params)
-        const roomCreated = await createRoomInDB(name, type);
+        socket.on('createRoom', async ({ name, type }) => {
+            try {
+                // Create the chat room in the DB
+                const roomCreated = await createRoomInDB(name, type);
+                if (!roomCreated) {
+                    socket.emit('createRoomResponse', { success: false, error: 'Room already exists' });
+                    return;
+                }
 
-        if (!roomCreated) {
-            socket.emit('createRoomResponse', { success: false, error: 'Room already exists' });
-            return;
-        }
+                // Join the room
+                socket.join(name);
 
-        socket.join(name);  // Join the new room
-        socket.emit('createRoomResponse', { success: true, room: name, type });  // Emit response with room name and type
+                // Emit the success response with room name and type
+                socket.emit('createRoomResponse', { success: true, room: name, type });
 
-        // Broadcast updated list of rooms (you can use either 'chat' or 'game' based on your use case)
-        io.emit('availableRooms', await getRoomsFromDB(type));  // Get rooms based on type (e.g., 'chat' or 'game')
-    } catch (error) {
-        console.error('Error creating room:', error);
-        socket.emit('createRoomResponse', { success: false, error: 'Error creating room' });
-    }
-});
+                // Emit updated list of available rooms (chat rooms)
+                io.emit('availableRooms', await getRoomsFromDB('chat'));  // Broadcast updated chat rooms to all clients
+
+            } catch (error) {
+                console.error('Error creating room:', error);
+                socket.emit('createRoomResponse', { success: false, error: 'Error creating room' });
+            }
+        });
 
         // socket.on('createRoom', async (newRoom, type) => {
         //     try {
@@ -195,8 +213,8 @@ socket.on('createRoom', async ({ name, type }) => {  // Destructure the object t
                 console.error('Error in join-room handler:', error);
             }
         });
-        
-//create gameroom
+
+        //create gameroom
 
         socket.on("createGameRoom", async (roomName, gameType) => {
             try {
@@ -206,15 +224,15 @@ socket.on('createRoom', async ({ name, type }) => {  // Destructure the object t
                     socket.emit("createRoomResponse", { success: false, error: "Room already exists!" });
                     return;
                 }
-        
+
                 // Create associated chat room
                 const chatRoomName = `${roomName}-chat`; // e.g., "gameRoom1-chat"
                 await createRoomInDB(chatRoomName, "chat");
-        
+
                 socket.join(roomName);  // Join game room
                 socket.join(chatRoomName);  // Join corresponding chat room
                 socket.emit("createRoomResponse", { success: true, room: roomName });
-        
+
                 // Update available rooms
                 io.emit("availableRooms", await getRoomsFromDB("game"));  // For game rooms
             } catch (error) {
@@ -222,7 +240,7 @@ socket.on('createRoom', async ({ name, type }) => {  // Destructure the object t
                 socket.emit("createRoomResponse", { success: false, error: "Error creating room" });
             }
         });
-        
+
         // Handle sending messages (chat messages)
         socket.on('message', async ({ room, message, sender }) => {
             try {
