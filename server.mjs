@@ -41,6 +41,15 @@ const getRoomsFromDB = async (type = null) => {
     }
 };
 
+const getRoomByName = async (roomName) => {
+    try {
+        const result = await client.query('SELECT * FROM rooms WHERE name = $1', [roomName]);
+        return result.rows[0];  // Return the first row (room) if found
+    } catch (error) {
+        console.error("Error fetching room by name:", error);
+        return null;
+    }
+};
 
 
 // Handle room creation (chat or game)
