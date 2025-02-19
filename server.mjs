@@ -45,10 +45,22 @@ const getRoomsFromDB = async (type = null) => {
 
 // Handle room creation (chat or game)
 const createRoomInDB = async (newRoom, type) => {
+    if (!newRoom) {
+        console.error("Room name is invalid (null or undefined).");
+        return null;  // Ensure the room name is not empty or undefined.
+    }
+
     try {
         console.log(`Checking if room ${newRoom} exists...`);
+
+            // Ensure client is active
+            if (!client || !client.query) {
+                console.error("Database client is not active or not connected.");
+                return null;
+            }
+    
         const checkRes = await client.query('SELECT * FROM rooms WHERE name = $1', [newRoom]);
-        
+
         if (checkRes.rows.length > 0) {
             console.log(`Room ${newRoom} already exists.`);
             return null;  // Room already exists
@@ -167,25 +179,35 @@ app.prepare().then(() => {
         // Handle 'createRoom' event (creating a chat room)
         socket.on('createRoom', async ({ name, type }) => {
             try {
-                // Create the chat room in the DB
-                const roomCreated = await createRoomInDB(name, type);
-                if (!roomCreated) {
+                if (!name || !type) {
+                    socket.emit('createRoomResponse', { success: false, error: 'Room name and type are required!' });
+                    return;
+                }
+        
+                // Check if room already exists (optional)
+                const existingRoom = await getRoomByName(name);
+                if (existingRoom) {
                     socket.emit('createRoomResponse', { success: false, error: 'Room already exists' });
                     return;
                 }
-
-                // Join the room
-                socket.join(name);
-
-                // Emit the success response with room name and type
-                socket.emit('createRoomResponse', { success: true, room: name, type });
-
-                // Emit updated list of available rooms (chat rooms)
-                io.emit('availableRooms', await getRoomsFromDB());  // Broadcast updated chat rooms to all clients
-
+        
+                // Insert the room into the database (using your DB function)
+                const roomCreated = await createRoomInDB(name, type);
+                if (!roomCreated) {
+                    socket.emit('createRoomResponse', { success: false, error: 'Error creating room' });
+                    return;
+                }
+        
+                // Emit success and the new room name
+                socket.emit('createRoomResponse', { success: true, room: name });
+        
+                // Optionally, you can emit the updated room list
+                const allRooms = await getRoomsFromDB(); // Fetch all rooms
+                io.emit('availableRooms', allRooms); // Broadcast updated room list
+        
             } catch (error) {
                 console.error('Error creating room:', error);
-                socket.emit('createRoomResponse', { success: false, error: 'Error creating room' });
+                socket.emit('createRoomResponse', { success: false, error: 'Server error while creating room' });
             }
         });
 
