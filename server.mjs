@@ -79,11 +79,11 @@ const saveMessageToDatabase = async (room, message, sender, type) => {
 
 
 // Get message history
-export async function getMessagesFromDB(roomName) {
+export async function getMessagesFromDB(roomName, limit = 50, offset = 0) {
     try {
         const res = await client.query(
             'SELECT sender, message, created_at FROM messages WHERE room_name = $1 ORDER BY created_at ASC',
-            [roomName]
+            [roomName, limit, offset]
         );
         return res.rows;
     } catch (error) {
@@ -146,9 +146,10 @@ app.prepare().then(() => {
 
         // Handle 'joinGameRoom' event (joining a game room)
         socket.on("joinGameRoom", async (roomName, userName) => {
+                   
             try {
-                const room = await client.query('SELECT * FROM rooms WHERE name = $1 AND type = $2', [roomName, 'game']);
-                if (!room.rows.length) {
+                const roomRes = await client.query('SELECT * FROM rooms WHERE name = $1 AND type = $2', [roomName, 'game']);
+                if (!roomRes.rows.length === 0) {
                     socket.emit("joinRoomError", { error: "Game room not found!" });
                     return;
                 }
@@ -157,6 +158,7 @@ app.prepare().then(() => {
                 io.to(roomName).emit("user_joined", `${userName} has joined the game!`);
             } catch (error) {
                 console.error('Error joining game room:', error);
+                socket.emit("joinRoomError", { error: "An error occurred while joining the game room." });
             }
         });
 
@@ -295,14 +297,23 @@ app.prepare().then(() => {
         // Handle removeRoom event (for chat or game)
         socket.on("removeRoom", async (roomToRemove) => {
             try {
+                // Notify users about the room deletion
+                io.to(roomToRemove).emit("room_removed", `Room "${roomToRemove}" has been removed.`);
+        
+                // Clean up messages and room data from DB
                 await client.query('DELETE FROM messages WHERE room_name = $1', [roomToRemove]);
                 await client.query('DELETE FROM rooms WHERE name = $1', [roomToRemove]);
+        
+                // Emit updated list of available rooms
                 const updatedRooms = await getRoomsFromDB();
-                io.emit("availableRooms", updatedRooms);  // Emit updated room list
+                io.emit("availableRooms", updatedRooms);  // Broadcast updated room list to all clients
+        
             } catch (error) {
                 console.error("Error deleting room and messages:", error);
+                io.to(roomToRemove).emit("room_removed_error", "An error occurred while deleting the room.");
             }
         });
+        
     });
 
     // Start the server
